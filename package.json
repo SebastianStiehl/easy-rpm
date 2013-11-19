@@ -28,7 +28,8 @@
   },
   "dependencies": {
     "shortid": "~2.0.0",
-    "grunt": "~0.4.1"
+    "grunt": "~0.4.1",
+    "async": "~0.2.9"
   },
   "devDependencies": {
     "grunt-contrib-jshint": "~0.6.0",
