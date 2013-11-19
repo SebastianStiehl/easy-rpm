@@ -90,7 +90,7 @@ module.exports = function(grunt) {
       preUninstallScript: [],
       postUninstallScript: [],
       tempDir: tmpDirPrefix + shortid.generate(),
-      keepTemp: true,
+      keepTemp: false,
       requires: ""
     });
 
