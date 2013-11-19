@@ -10,55 +10,59 @@
 
 var shortid = require("shortid");
 var path = require("path");
+var async = require("async");
 
 function writeSpecFile(grunt, files, options) {
 
-    var pkgName = options.name+"-"+options.version+"-"+options.buildArch;
-    var specFilepath = path.join(options.tempDir, "SPECS", pkgName+".spec");
+  var pkgName = options.name+"-"+options.version+"-"+options.buildArch;
+  var specFilepath = path.join(options.tempDir, "SPECS", pkgName+".spec");
 
-    var b = [];
-    var i = 0;
-    b.push("%define   _topdir "+path.resolve(options.tempDir));
-    b.push("");
-    b.push("Name: "+options.name);
-    b.push("Version: "+options.version);
-    b.push("Release: "+options.release);
-    b.push("Summary: "+options.summary);
-    b.push("License: "+options.license);
-    b.push("BuildArch: "+options.buildArch);
-    b.push("");
-    b.push("%description");
-    b.push(options.description);
-    b.push("");
-    b.push("%files");
-    for (i=0;i<files.length;i++) {
-      b.push("\""+files[i]+"\"");
-    }
-    b.push("");
-    b.push("%pre");
-    for (i=0;i<options.preInstallScript.length;i++) {
-      b.push(options.preInstallScript[i]);
-    }
-    b.push("");
-    b.push("%post");
-    for (i=0;i<options.postInstallScript.length;i++) {
-      b.push(options.postInstallScript[i]);
-    }
-    b.push("");
-    b.push("%preun");
-    for (i=0;i<options.preUninstallScript.length;i++) {
-      b.push(options.preUninstallScript[i]);
-    }
-    b.push("");
-    b.push("%postun");
-    for (i=0;i<options.postUninstallScript.length;i++) {
-      b.push(options.postUninstallScript[i]);
-    }
+  var b = [];
+  var i = 0;
+  b.push("%define _topdir "+path.resolve(options.tempDir));
+  b.push("%define _binaries_in_noarch_packages_terminate_build   0");
+  b.push("");
+  b.push("Name: "+options.name);
+  b.push("Version: "+options.version);
+  b.push("Release: "+options.release);
+  b.push("Summary: "+options.summary);
+  b.push("License: "+options.license);
+  b.push("BuildArch: "+options.buildArch);
+  b.push("Group: "+options.group);
+  b.push("Requires: "+options.requires);
+  b.push("");
+  b.push("%description");
+  b.push(options.description);
+  b.push("");
+  b.push("%files");
+  for (i=0;i<files.length;i++) {
+    b.push("\""+files[i]+"\"");
+  }
+  b.push("");
+  b.push("%pre");
+  for (i=0;i<options.preInstallScript.length;i++) {
+    b.push(options.preInstallScript[i]);
+  }
+  b.push("");
+  b.push("%post");
+  for (i=0;i<options.postInstallScript.length;i++) {
+    b.push(options.postInstallScript[i]);
+  }
+  b.push("");
+  b.push("%preun");
+  for (i=0;i<options.preUninstallScript.length;i++) {
+    b.push(options.preUninstallScript[i]);
+  }
+  b.push("");
+  b.push("%postun");
+  for (i=0;i<options.postUninstallScript.length;i++) {
+    b.push(options.postUninstallScript[i]);
+  }
 
-    var specFileContent = b.join("\n");
-    grunt.file.write(specFilepath, specFileContent);
+  var specFileContent = b.join("\n");
+  grunt.file.write(specFilepath, specFileContent);
 
-    return specFilepath;
+  return specFilepath;
 }
 
 
@@ -66,10 +70,12 @@ module.exports = function(grunt) {
 
   grunt.registerMultiTask("easy_rpm", "Easily create RPM package to install files/directories", function() {
 
-    var done = this.async();
+    var that = this,
+        done = that.async(),
+        tmpDirPrefix = "easy-rpm-tmp-";
 
     // Merge task-specific and/or target-specific options with these defaults.
-    var options = this.options({
+    var options = that.options({
       name: "noname",
       summary: "No Summary",
       description: "No Description",
@@ -83,14 +89,15 @@ module.exports = function(grunt) {
       postInstallScript: [],
       preUninstallScript: [],
       postUninstallScript: [],
-      tempDir: "tmp-"+shortid.generate(),
-      keepTemp: false
+      tempDir: tmpDirPrefix + shortid.generate(),
+      keepTemp: true,
+      requires: ""
     });
 
     var tmpDir = path.resolve(options.tempDir);
     var buildRoot = tmpDir + "/BUILDROOT/";
     var rpmStructure = ["BUILD","BUILDROOT","RPMS","SOURCES","SPECS","SRPMS"];
-    
+
     //If the tmpDir exists (probably from previous build), delete it first
     if (grunt.file.exists(tmpDir)) {
       grunt.log.writeln("Deleting old tmp dir");
@@ -98,16 +105,16 @@ module.exports = function(grunt) {
     }
 
     //Create RPM build folder structure
-    grunt.log.writeln("Creating RPM folder structure at "+tmpDir);    
+    grunt.log.writeln("Creating RPM folder structure at "+tmpDir);
     for (var i=0;i<rpmStructure.length;i++) {
       grunt.file.mkdir(tmpDir+"/"+rpmStructure[i]);
     }
 
     //Copy source to the BUILDROOT folder
-    grunt.log.writeln("Copying files to tmp directory");
-    var fileBasket = [];    
-    this.files.forEach(function(file) {
-      
+    grunt.log.writeln("Copying files to tmp directory to build root " + buildRoot);
+    var fileBasket = [];
+    that.files.forEach(function(file) {
+
       //All file entry should have both "src" and "dest"
       if (!file.src || !file.dest) {
         grunt.log.error("All file entries must have both 'src' and 'dest' property");
@@ -116,7 +123,7 @@ module.exports = function(grunt) {
 
       file.src.filter(function(srcPath) {
         var actualSrcPath = srcPath;
-        
+
         //If the CWD option is specified, look for each file from CWD path
         if (file.cwd) {
           actualSrcPath = path.join(file.cwd, srcPath);
@@ -124,7 +131,7 @@ module.exports = function(grunt) {
 
         //Copy file to the BUILDROOT directory and store the actual target path
         //for generating the SPEC file
-        if (!grunt.file.isDir(actualSrcPath)) {
+        if (!grunt.file.isDir(actualSrcPath) && actualSrcPath.search(tmpDirPrefix) === -1) {
           grunt.log.writeln("Copying: "+actualSrcPath);
           var copyTargetPath = path.join(buildRoot, file.dest, srcPath);
           grunt.file.copy(actualSrcPath, copyTargetPath);
@@ -160,8 +167,8 @@ module.exports = function(grunt) {
 
     //Build RPM
     grunt.log.writeln("Building RPM package");
-    grunt.util.async.series([
-      
+    async.series([
+
       //spawn rpmbuilt tool
       function(callback) {
         var buildCmd = "rpmbuild";
@@ -174,8 +181,11 @@ module.exports = function(grunt) {
         grunt.log.writeln("Execute: "+buildCmd+" "+buildArgs.join(" "));
         grunt.util.spawn({
           cmd: buildCmd,
-          args: buildArgs,
-        }, callback);
+          args: buildArgs
+        }, function (err, info) {
+          grunt.log.writeln("Done: " + info);
+          callback.apply(that, arguments);
+        });
       },
       function(callback) {
         //Copy the build output to the current directory
@@ -189,16 +199,17 @@ module.exports = function(grunt) {
           grunt.log.writeln("Deleting tmp folder "+tmpDir);
           grunt.file.delete(tmpDir);
         }
-      }     
-    ],
-    function (err) {
-      if (!err) {
-        done();
-      } else {
-        grunt.log.error(err);
-        done(false);
+        callback();
       }
-    });
+    ],
+      function (err) {
+        if (!err) {
+          done();
+        } else {
+          grunt.log.error(err);
+          done(false);
+        }
+      });
 
   });
 };
